@@ -60,8 +60,9 @@ def gmute(update, context):
             message.reply_text("This user is already gmuted; I'd change the reason, but you haven't given me one...")
             return
 
-        success = sql.update_gmute_reason(user_id, user_chat.username or user_chat.first_name, reason)
-        if success:
+        if success := sql.update_gmute_reason(
+            user_id, user_chat.username or user_chat.first_name, reason
+        ):
             message.reply_text("This user is already gmuted; I've gone and updated the gmute reason though!")
         else:
             message.reply_text("I thought this person was gmuted.")
@@ -106,9 +107,7 @@ def gmute(update, context):
                 pass
             elif excp.message == "Method is available only for supergroups":
                 pass
-            elif excp.message == "Can't demote chat creator":
-                pass
-            else:
+            elif excp.message != "Can't demote chat creator":
                 message.reply_text("Unexpected Error!")
                 context.bot.send_message(ERROR_DUMP, "Could not gmute due to: {}".format(excp.message))
                 sql.ungmute_user(user_id)
@@ -181,9 +180,7 @@ def ungmute(update, context):
                 pass
             elif excp.message == "Channel_private":
                 pass
-            elif excp.message == "Chat_admin_required":
-                pass
-            else:
+            elif excp.message != "Chat_admin_required":
                 message.reply_text("Unexpected Error!")
                 bot.send_message(ERROR_DUMP, "Could not un-gmute due to: {}".format(excp.message))
                 return
@@ -225,21 +222,27 @@ def check_and_mute(update, user_id, should_message=True):
 @run_async
 def enforce_gmute(update, context):
     # Not using @restrict handler to avoid spamming - just ignore if cant gmute.
-    if sql.does_chat_gmute(update.effective_chat.id) and update.effective_chat.get_member(context.bot.id).can_restrict_members:
-        user = update.effective_user  # type: Optional[User]
-        chat = update.effective_chat  # type: Optional[Chat]
-        msg = update.effective_message  # type: Optional[Message]
+    if (
+        not sql.does_chat_gmute(update.effective_chat.id)
+        or not update.effective_chat.get_member(
+            context.bot.id
+        ).can_restrict_members
+    ):
+        return
+    user = update.effective_user  # type: Optional[User]
+    chat = update.effective_chat  # type: Optional[Chat]
+    msg = update.effective_message  # type: Optional[Message]
 
+    if user and not is_user_admin(chat, user.id):
+        check_and_mute(update, user.id, should_message=True)
+    if msg.new_chat_members:
+        new_members = update.effective_message.new_chat_members
+        for mem in new_members:
+            check_and_mute(update, mem.id, should_message=True)
+    if msg.reply_to_message:
+        user = msg.reply_to_message.from_user  # type: Optional[User]
         if user and not is_user_admin(chat, user.id):
             check_and_mute(update, user.id, should_message=True)
-        if msg.new_chat_members:
-            new_members = update.effective_message.new_chat_members
-            for mem in new_members:
-                check_and_mute(update, mem.id, should_message=True)
-        if msg.reply_to_message:
-            user = msg.reply_to_message.from_user  # type: Optional[User]
-            if user and not is_user_admin(chat, user.id):
-                check_and_mute(update, user.id, should_message=True)
 
 @run_async
 @user_admin
